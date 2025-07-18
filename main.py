@@ -67,7 +67,7 @@ class Products(Base):
 class Orders(Base):
     __tablename__ = "orders"
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_date: Mapped[date] = mapped_column(db.Date, nullable=False)
+    order_date: Mapped[date] = mapped_column(db.DateTime, nullable=False)
     customer_id: Mapped[int] = mapped_column(db.ForeignKey("customer.id"), nullable=False)
 
     customer: Mapped["Customer"] = db.relationship("Customer", back_populates="orders")
@@ -93,11 +93,11 @@ class ProductSchema(ma.SQLAlchemyAutoSchema):
 
 
 class OrderSchema(ma.SQLAlchemyAutoSchema):
-    order_date = fields.Date(
-        required=True, format='%m.%d.%Y', 
+    order_date = fields.DateTime(
+        required=True, format='%m.%d.%Y %H:%M:%S', 
         error_messages={
             'required': 'Order date is required.',
-            'invalid': 'Invalid date format. Please use MM.DD.YYYY.'
+            'invalid': 'Invalid datetime format. Please use MM.DD.YYYY HH:MM:SS.'
         }
     )  # Ensure date is in the correct format
 
@@ -397,6 +397,22 @@ def patch_order(id):
         "Message": "Order updated successfully",
         "order": order_schema.dump(order)
     }), 200
+
+# --- Remove Product from Order (DELETE) ---
+@app.route("/orders/<int:order_id>/remove_product/<int:product_id>", methods=["DELETE"])
+def remove_product_from_order(order_id, product_id):
+    order = db.session.get(Orders, order_id)
+    product = db.session.get(Products, product_id)
+
+    if order and product:
+        if product in order.products:
+            order.products.remove(product)
+            db.session.commit()
+            return jsonify({"Message": "Product removed from order successfully"}), 200
+        else:
+            return jsonify({"error": "Product not found in order"}), 404
+    else:
+        return jsonify({"error": "Order or Product not found"}), 404
 
 if __name__ == '__main__':
     app.run(debug=True)
