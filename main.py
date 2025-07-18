@@ -39,33 +39,29 @@ ma = Marshmallow(app)
 class Customer(Base):
     __tablename__ = "customer"
     id: Mapped[int] = mapped_column(primary_key=True) # autoincrement is set to default for primary keys
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
-    email: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
-    address: Mapped[str] = mapped_column(String(200), nullable=True)
+    name: Mapped[str] = mapped_column(db.String(50), nullable=False)
+    email: Mapped[str] = mapped_column(db.String(100), nullable=False, unique=True)
+    address: Mapped[str] = mapped_column(db.String(200), nullable=True)
 
     orders: Mapped[List['Orders']] = db.relationship("Orders", back_populates="customer")
 
-
-
+# Association Table for Many-to-Many between Orders and Products
+order_products = db.Table(
+    'order_products',
+    db.metadata,
+    db.Column('order_id', db.ForeignKey('orders.id'), primary_key=True),
+    db.Column('product_id', db.ForeignKey('products.id'), primary_key=True),  # Composite PK: prevents duplicate entries
+)
 
 # --- Products Table ---
 class Products(Base):
     __tablename__ = "products"
     id: Mapped[int] = mapped_column(primary_key=True)
-    # MARK: FIXME: Use String/Float instead of db.String due to imports. Test prior to utilizing
     product_name: Mapped[str] = mapped_column(db.String(200), nullable=False)
     price: Mapped[float] = mapped_column(db.Float, nullable=False)
 
     orders: Mapped[List['Orders']] = db.relationship("Orders", secondary=order_products, back_populates="products")
 
-
-# Association Table for Many-to-Many between Orders and Products
-order_products = Table(
-    'order_products',
-    Base.metadata,
-    Column('order_id', ForeignKey('orders.id'), primary_key=True),
-    Column('product_id', ForeignKey('products.id'), primary_key=True),  # Composite PK: prevents duplicate entries
-)
 
 # --- Orders Table ---
 class Orders(Base):
@@ -97,17 +93,18 @@ class ProductSchema(ma.SQLAlchemyAutoSchema):
 
 
 class OrderSchema(ma.SQLAlchemyAutoSchema):
+    order_date = fields.Date(
+        required=True, format='%m.%d.%Y', 
+        error_messages={
+            'required': 'Order date is required.',
+            'invalid': 'Invalid date format. Please use MM.DD.YYYY.'
+        }
+    )  # Ensure date is in the correct format
+
     class Meta:
         model = Orders
         include_fk = True
         load_instance = True
-        order_date = fields.Date(
-            required=True, format='%m.%d.%Y', 
-            error_messages={
-                'required': 'Order date is required.',
-                'invalid': 'Invalid date format. Please use MM.DD.YYYY.'
-            }
-        )  # Ensure date is in the correct format
 
 
 customer_schema = CustomerSchema()
@@ -176,7 +173,26 @@ def update_customer(id):
         return jsonify({"error": "Customer not found"}), 404
 
     try:
-        customer_data = customer_schema.load(request.json, instance=customer)
+        customer_schema.load(request.json, instance=customer)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+
+    db.session.commit()
+
+    return jsonify({
+        "Message": "Customer updated successfully",
+        "customer": customer_schema.dump(customer)
+    }), 200
+
+# ---Customer (PATCH) partial update---
+@app.route('/customers/<int:id>', methods=['PATCH'])
+def patch_customer(id):
+    customer = db.session.get(Customer, id)
+    if not customer:
+        return jsonify({"error": "Customer not found"}), 404
+
+    try:
+        customer_schema.load(request.json, instance=customer, partial=True)
     except ValidationError as err:
         return jsonify(err.messages), 400
 
@@ -247,7 +263,7 @@ def update_product(id):
         return jsonify({"error": "Product not found"}), 404
 
     try:
-        product_data = product_schema.load(request.json, instance=product)
+        product_schema.load(request.json, instance=product)
     except ValidationError as err:
         return jsonify(err.messages), 400
 
@@ -258,6 +274,25 @@ def update_product(id):
         "product": product_schema.dump(product)
     }), 200
     
+# --- Product (PATCH) partial update ---
+@app.route("/products/<int:id>", methods=["PATCH"])
+def patch_product(id):
+    product = db.session.get(Products, id)
+    if not product:
+        return jsonify({"error": "Product not found"}), 404
+
+    try:
+        product_schema.load(request.json, instance=product, partial=True)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+
+    db.session.commit()
+
+    return jsonify({
+        "Message": "Product updated successfully",
+        "product": product_schema.dump(product)
+    }), 200    
+
 # --- Product (DELETE) ---
 @app.route("/products/<int:id>", methods=["DELETE"])
 def delete_product(id):
@@ -317,7 +352,7 @@ def add_product_to_order(order_id, product_id):
     else:
         return jsonify({"error": "Order or Product not found"}), 404
     
-#----Get Order by ID (GET)---
+#----Get Order by Order ID (GET)---
 @app.route("/orders/<int:id>", methods=["GET"])
 def get_order(id):
     order = db.session.get(Orders, id)
@@ -343,6 +378,25 @@ def get_products_in_order(order_id):
         return jsonify({"error": "Order not found"}), 404
 
     return products_schema.jsonify(order.products, many=True)
+
+# --- Order (PATCH) partial update ---
+@app.route('/orders/<int:id>', methods=['PATCH'])
+def patch_order(id):
+    order = db.session.get(Orders, id)
+    if not order:
+        return jsonify({"error": "Order not found"}), 404
+
+    try:
+        order_schema.load(request.json, instance=order, partial=True)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+
+    db.session.commit()
+
+    return jsonify({
+        "Message": "Order updated successfully",
+        "order": order_schema.dump(order)
+    }), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
