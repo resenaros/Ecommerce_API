@@ -1,10 +1,11 @@
+# ---MARK: Imports ---
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 from marshmallow import ValidationError, fields
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import String, select, delete, Float, DateTime, ForeignKey, Table, Column
-from datetime import date
+from datetime import datetime
 from typing import List
 from dotenv import load_dotenv
 import os
@@ -14,7 +15,7 @@ load_dotenv()
 # --- Flask App Setup ---
 app = Flask(__name__)
 
-# ---Database config ---
+# ---MARK: Database config ---
 # Loads details from .env file
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
@@ -33,7 +34,7 @@ class Base(DeclarativeBase):
 db = SQLAlchemy(app, model_class=Base)
 ma = Marshmallow(app)
 
-# --- Models ---
+# ---MARK: Models ---
 
 # Customer Table
 class Customer(Base):
@@ -67,7 +68,7 @@ class Products(Base):
 class Orders(Base):
     __tablename__ = "orders"
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_date: Mapped[date] = mapped_column(db.DateTime, nullable=False)
+    order_date: Mapped[datetime] = mapped_column(db.DateTime, nullable=False)
     customer_id: Mapped[int] = mapped_column(db.ForeignKey("customer.id"), nullable=False)
 
     customer: Mapped["Customer"] = db.relationship("Customer", back_populates="orders")
@@ -79,7 +80,7 @@ with app.app_context():
     # db.drop_all()  # Uncomment to reset tables
 
 
-# --- Marshmallow Schemas ---
+# --- MARK: Marshmallow Schemas ---
 class CustomerSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
         model = Customer
@@ -122,7 +123,7 @@ orders_schema = OrderSchema(many=True)
 def home():
     return "Home"
 
-# ----------- Customer Endpoints -----------
+# -----------MARK: Customer Endpoints -----------
 
 # --- Customers (GET) ---
 @app.route("/customers", methods=["GET"])
@@ -151,18 +152,12 @@ def add_customer():
     except ValidationError as err:
         return jsonify(err.messages), 400
 
-    new_customer = Customer(
-        name=customer_data["name"],
-        email=customer_data["email"],
-        address=customer_data["address"]
-    )
-
-    db.session.add(new_customer)
+    db.session.add(customer_data)
     db.session.commit()
 
     return jsonify({
         "Message": "Customer created successfully",
-        "customer": customer_schema.dump(new_customer)
+        "customer": customer_schema.dump(customer_data)
     }), 201
     
 # --- Customer (PUT) ---
@@ -215,7 +210,7 @@ def delete_customer(id):
 
     return jsonify({"Message": "Customer deleted successfully"}), 200
 
-# ----------- Product Endpoints -----------
+# -----------MARK: Product Endpoints -----------
 
 # --- Products (GET) ---
 @app.route("/products", methods=["GET"])
@@ -242,17 +237,13 @@ def add_product():
     except ValidationError as err:
         return jsonify(err.messages), 400
 
-    new_product = Products(
-        product_name=product_data["product_name"],
-        price=product_data["price"]
-    )
 
-    db.session.add(new_product)
+    db.session.add(product_data)
     db.session.commit()
 
     return jsonify({
         "Message": "Product created successfully",
-        "product": product_schema.dump(new_product)
+        "product": product_schema.dump(product_data)
     }), 201
 
 # --- Product (PUT) ---
@@ -305,7 +296,7 @@ def delete_product(id):
 
     return jsonify({"Message": "Product deleted successfully"}), 200
 
-# ----------- Order Endpoints -----------
+# -----------MARK: Order Endpoints -----------
 
 #----Create Order (POST)---
 @app.route("/orders", methods=["POST"])
@@ -316,21 +307,15 @@ def add_order():
         return jsonify(err.messages), 400
     
     # Retrieve the customer by id
-    customer = db.session.get(Customer, order_data["customer_id"])
+    customer = db.session.get(Customer, order_data.customer_id)
     
     # check if customer exists
     if customer:
-        new_order = Orders(
-            order_date=order_data["order_date"],
-            customer_id=order_data["customer_id"]
-        )
-        
-        db.session.add(new_order)
+        db.session.add(order_data)
         db.session.commit()
-        
         return jsonify({
             "Message": "Order created successfully",
-            "order": order_schema.dump(new_order)
+            "order": order_schema.dump(order_data)
         }), 201
         
     else:
